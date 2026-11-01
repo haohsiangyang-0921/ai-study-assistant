@@ -33,7 +33,10 @@ def set_cell_margins(cell, top=100, bottom=100, left=150, right=150):
 # 1. 產生專題報告 (Word: .docx)
 # ==============================================================================
 def create_project_report(output_path):
-    doc = Document()
+    from generate_new_report import create_styled_report
+    html_path = output_path.replace(".docx", ".html")
+    create_styled_report(output_path, html_path)
+    return
     
     # 邊界設定
     for section in doc.sections:
@@ -274,7 +277,7 @@ def create_presentation_slides(output_path):
     p2.space_after = PPt(28)
 
     p3 = tf1.add_paragraph()
-    p3.text = "報告人：楊皓翔  ｜  核心技術：Python · Streamlit · Ollama / LM Studio (離線隱私)"
+    p3.text = "報告人：411587035 教行一 楊皓翔  ｜  核心技術：Python · Streamlit · 本地 AI 模型"
     p3.font.name = "微軟正黑體"
     p3.font.size = PPt(14)
     p3.font.color.rgb = COLOR_TEXT_MUTED
