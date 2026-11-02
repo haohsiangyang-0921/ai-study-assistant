@@ -8,7 +8,7 @@ import streamlit as st
 # 頁面配置與自訂樣式
 # ==============================================================================
 st.set_page_config(
-    page_title="AI 課堂摘要與互動測驗小助手 (本地模型版)",
+    page_title="AI 課堂摘要與互動測驗小助手",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -266,8 +266,28 @@ def call_llm(base_url: str, model_name: str, api_key: str, text: str):
     content = resp_data["choices"][0]["message"]["content"]
     parsed = extract_json_response(content)
     if not parsed or "summary" not in parsed or "quiz" not in parsed:
-        raise ValueError("本地模型回傳內容未能成功解析為所需的 JSON 格式。")
+        raise ValueError("AI 模型回傳內容未能成功解析為所需的 JSON 格式。")
     return parsed
+
+def get_stored_api_key():
+    """依優先順序取出 API Key：Streamlit Secrets → 環境變數（支援 Groq 與 OpenAI）"""
+    for name in ("GROQ_API_KEY", "OPENAI_API_KEY"):
+        try:
+            value = str(st.secrets.get(name, "")).strip()
+            if value:
+                return value
+        except Exception:
+            pass
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+CLOUD_PRESETS = {
+    "🆓 Groq（免費，註冊即可取得 Key）": {"url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "OpenAI（付費 API Key）": {"url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+    "自訂（OpenAI 相容端點）": {"url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+}
 
 # ==============================================================================
 # 狀態初始化與回呼函式 (Session State & Callbacks)
@@ -303,16 +323,16 @@ def clear_article_input():
 with st.sidebar:
     st.markdown("### ⚙️ AI 模型核心設定")
     
-    # 模式選擇
+    # 模式選擇（雲端部署友善：預設 Demo，任何人打開網頁即可體驗）
     backend_mode = st.radio(
         "選擇 AI 運算方式",
         [
-            "🏠 本地模型 (Ollama / LM Studio)",
-            "☁️ 雲端 API (OpenAI 相容)",
-            "🟡 演示模式 (Demo Mode)"
+            "🟡 演示模式 (Demo Mode)",
+            "☁️ 雲端 API (OpenAI / Groq)",
+            "🏠 本地模型 (Ollama / LM Studio)"
         ],
         index=0,
-        help="推薦使用本地模型：完全免費、資料不出電腦、保護隱私且無額外 API 限制。"
+        help="演示模式無需任何設定即可使用；雲端 API 免費（Groq）；本地模型僅適合自行運行本專案的情境。"
     )
 
     base_url = "http://localhost:11434/v1"
@@ -320,9 +340,36 @@ with st.sidebar:
     api_key = "local-key"
     is_demo = False
 
-    if backend_mode == "🏠 本地模型 (Ollama / LM Studio)":
+    if backend_mode == "🟡 演示模式 (Demo Mode)":
+        st.markdown('<span class="badge badge-demo">🟡 演示模式 (Demo Mode)</span>', unsafe_allow_html=True)
+        st.info("💡 演示模式已啟動：不消耗算力或 API 額度，直接使用內建的高品質示範結果，確保展示順暢不中斷！")
+        is_demo = True
+
+    elif backend_mode == "☁️ 雲端 API (OpenAI / Groq)":
+        st.markdown('<span class="badge badge-cloud">☁️ 雲端 API 模式</span>', unsafe_allow_html=True)
+
+        stored_key = get_stored_api_key()
+        user_key = st.text_input(
+            "API Key (密碼遮罩，留空則使用伺服器內建)",
+            value=stored_key,
+            type="password",
+            help="可留空：若管理員已在伺服器端設定 Secret，將自動套用。"
+        )
+        api_key = user_key or stored_key
+
+        cloud_preset = st.selectbox("API 提供商捷徑", list(CLOUD_PRESETS.keys()))
+        base_url = st.text_input("API 網址 (Base URL)", value=CLOUD_PRESETS[cloud_preset]["url"])
+        model_name = st.text_input("模型名稱", value=CLOUD_PRESETS[cloud_preset]["model"])
+
+        if not api_key:
+            st.warning("未提供 API Key。可前往 https://console.groq.com 免費註冊取得；或送出時自動降級為 Demo 備用模式。")
+        else:
+            st.success("已就緒！可使用雲端 AI 進行分析。")
+
+    else:
         st.markdown('<span class="badge badge-local">🏠 本地模型模式</span>', unsafe_allow_html=True)
-        
+        st.caption("⚠️ 此模式僅在「你自己的電腦上執行本專案」時可用；本專案於雲端執行時請改用 Demo 或雲端 API 模式。")
+
         server_preset = st.selectbox(
             "本地服務捷徑",
             [
@@ -367,23 +414,6 @@ with st.sidebar:
 
         st.caption("💡 免費離線運算，無需任何 API Key。")
 
-    elif backend_mode == "☁️ 雲端 API (OpenAI 相容)":
-        st.markdown('<span class="badge badge-cloud">☁️ 雲端 API 模式</span>', unsafe_allow_html=True)
-        env_key = os.getenv("OPENAI_API_KEY", "").strip()
-        user_key = st.text_input("API Key (密碼遮罩)", value=env_key, type="password")
-        api_key = user_key
-        base_url = st.text_input("API 網址 (Base URL)", value="https://api.openai.com/v1")
-        model_name = st.selectbox("選擇模型", ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"], index=0)
-        
-        if not api_key:
-            st.warning("未輸入 API Key，送出時將自動降級為 Demo 備用模式。")
-
-    else:
-        # 強制 Demo 模式
-        st.markdown('<span class="badge badge-demo">🟡 演示模式 (Demo Mode)</span>', unsafe_allow_html=True)
-        st.info("💡 演示模式已啟動，不消耗本機算力或 API，保證 90 秒順暢展示！")
-        is_demo = True
-
     st.markdown("---")
     st.markdown("### 🎯 核心學習功能")
     st.markdown("""
@@ -392,7 +422,7 @@ with st.sidebar:
     3. **即時解析**：提交後立即批改並呈現完整題解。
     """)
     st.markdown("---")
-    st.caption("Designed for Students | 本地離線隱私保障")
+    st.caption("Designed for Students | 雲端隨時可用 · 本地隱私可選")
 
 # ==============================================================================
 # 主畫面標題與隱私提示
@@ -429,21 +459,21 @@ st.text_area(
 )
 
 # 開始分析按鈕
-start_analysis = st.button("🚀 開始由本地 AI 分析並生成隨堂測驗", type="primary", use_container_width=True)
+start_analysis = st.button("🚀 開始 AI 分析並生成隨堂測驗", type="primary", use_container_width=True)
 
 if start_analysis:
     current_text = st.session_state.get("article_input", "").strip()
     if not current_text:
         st.warning("⚠️ 請先輸入文章內容，或點擊「載入範例文章」！")
     else:
-        with st.spinner(f"🤖 本地 AI ({model_name}) 正在精讀文章、萃取重點並出題中..."):
+        with st.spinner(f"🤖 AI ({model_name}) 正在精讀文章、萃取重點並出題中..."):
             if is_demo:
                 result = DEMO_RESULT
             else:
                 try:
                     result = call_llm(base_url, model_name, api_key, current_text)
                 except Exception as e:
-                    st.warning(f"⚠️ 連線至本地模型伺服器時發生問題（{str(e)}）。\n\n系統已自動切換為 Demo 模式呈現優質分析，確保您的展示順暢不中斷！")
+                    st.warning(f"⚠️ 連線至 AI 伺服器時發生問題（{str(e)}）。\n\n系統已自動切換為 Demo 模式呈現優質分析，確保您的展示順暢不中斷！")
                     result = DEMO_RESULT
                     
             st.session_state["analysis_result"] = result
